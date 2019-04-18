@@ -55,7 +55,7 @@ def fill_loop(it, q, stop_iteration, is_hardstop, looptime):
         try: put_loop(q, v, lambda: False, is_hardstop, looptime)
         except (SoftStop, HardStop): break
         
-def work_loop(iq, oq, finish, is_softstop, is_hardstop, looptime):
+def work_loop(f, iq, oq, finish, is_softstop, is_hardstop, looptime):
     while True:
         if is_hardstop(): break
         try: x = get_loop(iq, is_softstop, is_hardstop, looptime)
@@ -103,7 +103,7 @@ class xmap(object):
         self.threads.append(filler)
         
         for n in range(self.nb_threads):
-            worker_args = (iq, oq, workers_done[n], is_stop_iteration, is_without_context, self.looptime)
+            worker_args = (self.func, iq, oq, workers_done[n], is_stop_iteration, is_without_context, self.looptime)
             worker = Process(name='worker{}'.format(n), target=work_loop, args=worker_args)
             worker.start()
             self.threads.append(worker)
