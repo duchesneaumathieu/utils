@@ -78,6 +78,9 @@ class xmap(object):
         self.looptime = looptime
         self.context  = Value('i', 0)
         
+        self.iq = Queue(maxsize=self.imax)
+        self.oq = Queue(maxsize=self.omax)
+        
         self.assert_terminate = assert_terminate
         self.threads = list()
         self.killed_threads = list()
@@ -88,27 +91,24 @@ class xmap(object):
             raise RuntimeError('Already have context')
         self.context.value = 1
         is_without_context = lambda: not self.context.value
-        
-        iq = Queue(maxsize=self.imax)
-        oq = Queue(maxsize=self.omax)
-        
+       
         stop_iteration = Value('i', 0)
         is_stop_iteration = lambda: bool(stop_iteration.value)
         workers_done = [Value('i', 0) for _ in range(self.nb_threads)]
         is_workers_done = lambda: all(w.value for w in workers_done)
         
-        filler_args = (iter(self.iterable), iq, stop_iteration, is_without_context, self.looptime)
+        filler_args = (iter(self.iterable), self.iq, stop_iteration, is_without_context, self.looptime)
         filler = Process(name='filler', target=fill_loop, args=filler_args)
         filler.start()
         self.threads.append(filler)
         
         for n in range(self.nb_threads):
-            worker_args = (self.func, iq, oq, workers_done[n], is_stop_iteration, is_without_context, self.looptime)
+            worker_args = (self.func, self.iq, self.oq, workers_done[n], is_stop_iteration, is_without_context, self.looptime)
             worker = Process(name='worker{}'.format(n), target=work_loop, args=worker_args)
             worker.start()
             self.threads.append(worker)
         
-        return xiter(oq, is_workers_done, is_without_context, self.looptime)
+        return xiter(self.oq, is_workers_done, is_without_context, self.looptime)
     
     def kill_threads(self):
         time.sleep(2*self.looptime+0.1) #let the process finish by themself
@@ -124,6 +124,13 @@ class xmap(object):
     
     def __exit__(self, exc_type, exc_value, tb):
         self.context.value = 0
+        time.sleep(0.01) #leap of faith
+        while True: #consume iq
+            try: self.iq.get(timeout=0)
+            except Empty: break
+        while True: #consume oq
+            try: self.oq.get(timeout=0)
+            except Empty: break
         if self.assert_terminate: self.kill_threads()
         unkilled_threads = set(self.unkilled_threads)
         while self.threads:
